@@ -1,0 +1,4 @@
+# Hermes Mobile Python Engine Dependencies
+# These are installed in the libtermux environment on first run
+requests>=2.28.0
+urllib3>=1.26.0
