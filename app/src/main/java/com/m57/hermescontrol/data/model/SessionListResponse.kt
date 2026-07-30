@@ -1,0 +1,59 @@
+package com.m57.hermescontrol.data.model
+import kotlinx.serialization.Serializable
+
+@Serializable
+data class SessionListResponse(
+    val sessions: List<SessionInfo>,
+    val total: Int = 0,
+    val limit: Int = 0,
+    val offset: Int = 0,
+)
+
+@Serializable
+data class SessionInfo(
+    val id: String,
+    val title: String? = null,
+    val created_at: String? = null,
+    val message_count: Int? = null,
+    val status: String? = null,
+    val preview: String? = null,
+    val started_at: Double? = null,
+    val source: String? = null,
+    val parent_session_id: String? = null,
+    val display_name: String? = null,
+    val model: String? = null,
+)
+
+@Serializable
+data class SessionStatsResponse(
+    val total: Int = 0,
+    val active: Int = 0,
+)
+
+@Serializable
+data class SessionRenameRequest(
+    val title: String,
+)
+
+@Serializable
+data class BulkDeleteRequest(
+    val ids: List<String>,
+    val delete_all: Boolean = false,
+)
+
+@Serializable
+data class BulkDeleteResponse(
+    val ok: Boolean = false,
+    val deleted: Int = 0,
+)
+
+@Serializable
+data class PruneRequest(
+    val days: Int,
+)
+
+@Serializable
+data class SessionPromptResponse(
+    val prompt: String? = null,
+    val id: String? = null,
+)
