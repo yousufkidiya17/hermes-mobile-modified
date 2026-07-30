@@ -202,10 +202,8 @@ dependencies {
     implementation(libs.androidx.navigation3.runtime)
     implementation(libs.androidx.lifecycle.viewmodel.navigation3)
 
-    // ── Terminal & Linux Environment ──────────────────────────────────────
-    // libtermux: Embedded Linux environment (bash, python, node, pkg)
-    implementation("com.github.libtermux:libtermux-android:1.0.0")
-    implementation("com.github.libtermux:terminal-view:1.0.0")
+    // ── Terminal via ProcessBuilder (fallback) ──────────────────────────
+    // libtermux not yet published; using Runtime-based shell for now
 }
 
 tasks.register<Exec>("ktlintCheck") {
