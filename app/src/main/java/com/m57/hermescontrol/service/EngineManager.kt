@@ -16,15 +16,16 @@ class EngineManager(private val context: Context) {
         const val TAG = "EngineManager"
         const val LOCALBRIDGE_PORT = 4000
         const val ENGINE_PORT = 5000
-
-        // Paths inside libtermux environment
-        val HERMES_HOME: String
-            get() = "${context.filesDir}/hermes-engine"
-        val LOCALBRIDGE_JS: String
-            get() = "$HERMES_HOME/localbridge/server.mjs"
-        val PYTHON_ENGINE: String
-            get() = "$HERMES_HOME/engine/hermes_agent.py"
     }
+
+    // Paths inside libtermux environment
+    // NOTE: must be instance properties — companion object cannot access `context`.
+    private val HERMES_HOME: String
+        get() = "${context.filesDir}/hermes-engine"
+    private val LOCALBRIDGE_JS: String
+        get() = "$HERMES_HOME/localbridge/server.mjs"
+    private val PYTHON_ENGINE: String
+        get() = "$HERMES_HOME/engine/hermes_agent.py"
 
     data class EngineState(
         val termuxReady: Boolean = false,
