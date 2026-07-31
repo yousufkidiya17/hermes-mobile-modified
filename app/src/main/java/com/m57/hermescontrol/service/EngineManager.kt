@@ -114,13 +114,14 @@ class EngineManager(private val context: Context) {
         // libtermux bootstrap will create Linux environment
         // We use Runtime.exec to initialize the package manager
         try {
-            val process = Runtime.getRuntime().exec(
-                arrayOf(
-                    "sh",
-                    "-c",
-                    "echo 'Hermes Engine: Checking environment...'",
-                ),
-            )
+            val process =
+                Runtime.getRuntime().exec(
+                    arrayOf(
+                        "sh",
+                        "-c",
+                        "echo 'Hermes Engine: Checking environment...'",
+                    ),
+                )
             process.waitFor()
             currentState = currentState.copy(termuxReady = true)
         } catch (e: Exception) {
@@ -157,13 +158,14 @@ class EngineManager(private val context: Context) {
     private fun startLocalBridge() {
         val serverFile = File(LOCALBRIDGE_JS)
         if (serverFile.exists()) {
-            libtermuxProcess = Runtime.getRuntime().exec(
-                arrayOf(
-                    "sh",
-                    "-c",
-                    "cd $HERMES_HOME/localbridge && node server.mjs &",
-                ),
-            )
+            libtermuxProcess =
+                Runtime.getRuntime().exec(
+                    arrayOf(
+                        "sh",
+                        "-c",
+                        "cd $HERMES_HOME/localbridge && node server.mjs &",
+                    ),
+                )
             currentState = currentState.copy(localBridgeRunning = true)
             Log.d(TAG, "LocalBridge started on port $LOCALBRIDGE_PORT")
         } else {
@@ -179,36 +181,36 @@ class EngineManager(private val context: Context) {
                 "sh",
                 "-c",
                 """
-                python3 -c "
-            import http.server, json, urllib.request, sys
-            PORT = $LOCALBRIDGE_PORT
+                    python3 -c "
+                import http.server, json, urllib.request, sys
+                PORT = $LOCALBRIDGE_PORT
 
-            class ProxyHandler(http.server.BaseHTTPRequestHandler):
-                def do_GET(self):
-                    if self.path == '/health':
-                        self.send_response(200)
-                        self.send_header('Content-Type', 'application/json')
-                        self.end_headers()
-                        self.wfile.write(json.dumps({'status': 'ok', 'service': 'Hermes LocalBridge'}).encode())
-                def do_POST(self):
-                    if self.path == '/v1/chat/completions':
-                        content_len = int(self.headers.get('Content-Length', 0))
-                        body = json.loads(self.rfile.read(content_len))
-                        # Forward to OpenCode Zen API
-                        req = urllib.request.Request(
-                            'https://opencode.ai/zen/v1/chat/completions',
-                            data=json.dumps(body).encode(),
-                            headers={'Content-Type': 'application/json',
-                                     'Authorization': 'Bearer aetherix-master-7x9k2m4p'}
-                        )
-                        resp = urllib.request.urlopen(req)
-                        self.send_response(200)
-                        self.send_header('Content-Type', 'application/json')
-                        self.end_headers()
-                        self.wfile.write(resp.read())
+                class ProxyHandler(http.server.BaseHTTPRequestHandler):
+                    def do_GET(self):
+                        if self.path == '/health':
+                            self.send_response(200)
+                            self.send_header('Content-Type', 'application/json')
+                            self.end_headers()
+                            self.wfile.write(json.dumps({'status': 'ok', 'service': 'Hermes LocalBridge'}).encode())
+                    def do_POST(self):
+                        if self.path == '/v1/chat/completions':
+                            content_len = int(self.headers.get('Content-Length', 0))
+                            body = json.loads(self.rfile.read(content_len))
+                            # Forward to OpenCode Zen API
+                            req = urllib.request.Request(
+                                'https://opencode.ai/zen/v1/chat/completions',
+                                data=json.dumps(body).encode(),
+                                headers={'Content-Type': 'application/json',
+                                         'Authorization': 'Bearer aetherix-master-7x9k2m4p'}
+                            )
+                            resp = urllib.request.urlopen(req)
+                            self.send_response(200)
+                            self.send_header('Content-Type', 'application/json')
+                            self.end_headers()
+                            self.wfile.write(resp.read())
 
-            http.server.HTTPServer(('127.0.0.1', PORT), ProxyHandler).serve_forever()
-            " &
+                http.server.HTTPServer(('127.0.0.1', PORT), ProxyHandler).serve_forever()
+                " &
                 """.trimIndent(),
             ),
         )
