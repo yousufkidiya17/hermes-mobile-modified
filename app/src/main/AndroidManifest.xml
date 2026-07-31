@@ -35,6 +35,12 @@
     <!-- Contacts -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
 
+    <!-- Hardware features (declared so lint knows these are optional on devices without them) -->
+    <uses-feature android:name="android.hardware.telephony" android:required="false" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.location" android:required="false" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+
     <application
         android:name=".HermesControlApp"
         android:allowBackup="false"
