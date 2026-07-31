@@ -264,16 +264,6 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      # Cache the AVD to avoid downloading/recreating it from scratch every time
-      - name: AVD Cache
-        id: avd-cache
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.android/avd/*
-            ~/.android/adb*
-          key: avd-api34-atd-x86_64
-
       # Retry the emulator boot + tests — GitHub-hosted runners sometimes fail
       # to boot the AVD on the first attempt (adb: connection refused). The
       # retry loop waits for `sys.boot_completed` before running the tests.
@@ -284,8 +274,8 @@ jobs:
           target: aosp_atd
           arch: x86_64
           disable-animations: true
-          force-avd-creation: false
-          emulator-options: -no-window -no-audio -no-boot-anim -camera-back none -memory 2048
+          force-avd-creation: true
+          emulator-options: -no-window -no-audio -no-boot-anim -camera-back none -memory 2048 -no-snapshot
           script: |
             adb wait-for-device
             for i in $(seq 1 60); do
