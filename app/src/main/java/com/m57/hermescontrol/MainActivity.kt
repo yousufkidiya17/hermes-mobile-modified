@@ -79,9 +79,10 @@ class MainActivity : ComponentActivity() {
      * This initializes libtermux, LocalBridge (Node.js), and Python Engine.
      */
     private fun startHermesEngine() {
-        val intent = Intent(this, HermesEngineService::class.java).apply {
-            action = HermesEngineService.ACTION_START
-        }
+        val intent =
+            Intent(this, HermesEngineService::class.java).apply {
+                action = HermesEngineService.ACTION_START
+            }
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             startForegroundService(intent)
         } else {

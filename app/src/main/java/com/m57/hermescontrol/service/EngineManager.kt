@@ -11,7 +11,6 @@ import java.io.File
  * Bootstraps Linux environment, installs dependencies, starts services.
  */
 class EngineManager(private val context: Context) {
-
     companion object {
         const val TAG = "EngineManager"
         const val LOCALBRIDGE_PORT = 4000
@@ -33,7 +32,7 @@ class EngineManager(private val context: Context) {
         val pythonReady: Boolean = false,
         val localBridgeRunning: Boolean = false,
         val pythonEngineRunning: Boolean = false,
-        val error: String? = null
+        val error: String? = null,
     )
 
     private var currentState = EngineState()
@@ -43,39 +42,40 @@ class EngineManager(private val context: Context) {
      * Initialize the Hermes Engine environment.
      * Sets up libtermux, installs Node.js + Python, starts services.
      */
-    suspend fun initialize(): EngineState = withContext(Dispatchers.IO) {
-        try {
-            // Step 1: Extract Hermes Engine assets
-            Log.d(TAG, "Extracting engine assets...")
-            extractEngineAssets()
+    suspend fun initialize(): EngineState =
+        withContext(Dispatchers.IO) {
+            try {
+                // Step 1: Extract Hermes Engine assets
+                Log.d(TAG, "Extracting engine assets...")
+                extractEngineAssets()
 
-            // Step 2: Initialize libtermux (Linux environment)
-            Log.d(TAG, "Initializing Linux environment...")
-            initTermuxEnvironment()
+                // Step 2: Initialize libtermux (Linux environment)
+                Log.d(TAG, "Initializing Linux environment...")
+                initTermuxEnvironment()
 
-            // Step 3: Install Node.js packages for LocalBridge
-            Log.d(TAG, "Installing LocalBridge dependencies...")
-            installLocalBridgeDeps()
+                // Step 3: Install Node.js packages for LocalBridge
+                Log.d(TAG, "Installing LocalBridge dependencies...")
+                installLocalBridgeDeps()
 
-            // Step 4: Install Python dependencies
-            Log.d(TAG, "Installing Python dependencies...")
-            installPythonDeps()
+                // Step 4: Install Python dependencies
+                Log.d(TAG, "Installing Python dependencies...")
+                installPythonDeps()
 
-            // Step 5: Start LocalBridge (Node.js)
-            Log.d(TAG, "Starting LocalBridge on port $LOCALBRIDGE_PORT...")
-            startLocalBridge()
+                // Step 5: Start LocalBridge (Node.js)
+                Log.d(TAG, "Starting LocalBridge on port $LOCALBRIDGE_PORT...")
+                startLocalBridge()
 
-            // Step 6: Start Python Hermes Engine
-            Log.d(TAG, "Starting Python Hermes Engine on port $ENGINE_PORT...")
-            startPythonEngine()
+                // Step 6: Start Python Hermes Engine
+                Log.d(TAG, "Starting Python Hermes Engine on port $ENGINE_PORT...")
+                startPythonEngine()
 
-            currentState
-        } catch (e: Exception) {
-            Log.e(TAG, "Engine initialization failed", e)
-            currentState = currentState.copy(error = e.message)
-            currentState
+                currentState
+            } catch (e: Exception) {
+                Log.e(TAG, "Engine initialization failed", e)
+                currentState = currentState.copy(error = e.message)
+                currentState
+            }
         }
-    }
 
     private fun extractEngineAssets() {
         val engineDir = File(HERMES_HOME)
@@ -89,7 +89,10 @@ class EngineManager(private val context: Context) {
         }
     }
 
-    private fun copyAsset(assetPath: String, destPath: String) {
+    private fun copyAsset(
+        assetPath: String,
+        destPath: String,
+    ) {
         try {
             val dest = File(destPath)
             if (!dest.exists()) dest.mkdirs()
@@ -111,10 +114,14 @@ class EngineManager(private val context: Context) {
         // libtermux bootstrap will create Linux environment
         // We use Runtime.exec to initialize the package manager
         try {
-            val process = Runtime.getRuntime().exec(arrayOf(
-                "sh", "-c",
-                "echo 'Hermes Engine: Checking environment...'"
-            ))
+            val process =
+                Runtime.getRuntime().exec(
+                    arrayOf(
+                        "sh",
+                        "-c",
+                        "echo 'Hermes Engine: Checking environment...'",
+                    ),
+                )
             process.waitFor()
             currentState = currentState.copy(termuxReady = true)
         } catch (e: Exception) {
@@ -127,8 +134,10 @@ class EngineManager(private val context: Context) {
         // Check if Node.js is available, install packages
         val nodeModules = File("$HERMES_HOME/localbridge/node_modules")
         if (!nodeModules.exists()) {
-            runCommand("sh", "-c",
-                "cd $HERMES_HOME/localbridge && npm install --production 2>/dev/null || true"
+            runCommand(
+                "sh",
+                "-c",
+                "cd $HERMES_HOME/localbridge && npm install --production 2>/dev/null || true",
             )
         }
         currentState = currentState.copy(nodeReady = true)
@@ -137,8 +146,10 @@ class EngineManager(private val context: Context) {
     private fun installPythonDeps() {
         val requirementsFile = File("$HERMES_HOME/engine/requirements.txt")
         if (requirementsFile.exists()) {
-            runCommand("sh", "-c",
-                "pip install -r $HERMES_HOME/engine/requirements.txt 2>/dev/null || true"
+            runCommand(
+                "sh",
+                "-c",
+                "pip install -r $HERMES_HOME/engine/requirements.txt 2>/dev/null || true",
             )
         }
         currentState = currentState.copy(pythonReady = true)
@@ -147,10 +158,14 @@ class EngineManager(private val context: Context) {
     private fun startLocalBridge() {
         val serverFile = File(LOCALBRIDGE_JS)
         if (serverFile.exists()) {
-            libtermuxProcess = Runtime.getRuntime().exec(arrayOf(
-                "sh", "-c",
-                "cd $HERMES_HOME/localbridge && node server.mjs &"
-            ))
+            libtermuxProcess =
+                Runtime.getRuntime().exec(
+                    arrayOf(
+                        "sh",
+                        "-c",
+                        "cd $HERMES_HOME/localbridge && node server.mjs &",
+                    ),
+                )
             currentState = currentState.copy(localBridgeRunning = true)
             Log.d(TAG, "LocalBridge started on port $LOCALBRIDGE_PORT")
         } else {
@@ -161,9 +176,11 @@ class EngineManager(private val context: Context) {
 
     private fun startSimpleProxy() {
         // Fallback: Start a simple Python HTTP proxy as LocalBridge
-        Runtime.getRuntime().exec(arrayOf(
-            "sh", "-c",
-            """
+        Runtime.getRuntime().exec(
+            arrayOf(
+                "sh",
+                "-c",
+                """
             python3 -c "
 import http.server, json, urllib.request, sys
 PORT = $LOCALBRIDGE_PORT
@@ -194,18 +211,22 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
 
 http.server.HTTPServer(('127.0.0.1', PORT), ProxyHandler).serve_forever()
 " &
-            """.trimIndent()
-        ))
+                """.trimIndent(),
+            ),
+        )
         currentState = currentState.copy(localBridgeRunning = true)
     }
 
     private fun startPythonEngine() {
         val engineFile = File(PYTHON_ENGINE)
         if (engineFile.exists()) {
-            Runtime.getRuntime().exec(arrayOf(
-                "sh", "-c",
-                "cd $HERMES_HOME/engine && python3 hermes_agent.py --port $ENGINE_PORT &"
-            ))
+            Runtime.getRuntime().exec(
+                arrayOf(
+                    "sh",
+                    "-c",
+                    "cd $HERMES_HOME/engine && python3 hermes_agent.py --port $ENGINE_PORT &",
+                ),
+            )
             currentState = currentState.copy(pythonEngineRunning = true)
             Log.d(TAG, "Python Hermes Engine started on port $ENGINE_PORT")
         }

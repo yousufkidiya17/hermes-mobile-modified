@@ -19,7 +19,6 @@ import kotlinx.coroutines.flow.StateFlow
  * Starts libtermux (Linux env), Node.js (LocalBridge), and Python (Agent Engine).
  */
 class HermesEngineService : Service() {
-
     companion object {
         const val TAG = "HermesEngine"
         const val CHANNEL_ID = "hermes_engine_channel"
@@ -41,7 +40,7 @@ class HermesEngineService : Service() {
         STARTING_LOCALBRIDGE,
         STARTING_PYTHON,
         READY,
-        ERROR
+        ERROR,
     }
 
     override fun onCreate() {
@@ -49,7 +48,11 @@ class HermesEngineService : Service() {
         createNotificationChannel()
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    override fun onStartCommand(
+        intent: Intent?,
+        flags: Int,
+        startId: Int,
+    ): Int {
         when (intent?.action) {
             ACTION_START -> {
                 startForeground(NOTIFICATION_ID, createNotification("Starting Hermes Engine..."))
@@ -94,24 +97,26 @@ class HermesEngineService : Service() {
     }
 
     private fun createNotificationChannel() {
-        val channel = NotificationChannel(
-            CHANNEL_ID,
-            "Hermes Engine",
-            NotificationManager.IMPORTANCE_LOW
-        ).apply {
-            description = "Hermes AI Engine background service"
-        }
+        val channel =
+            NotificationChannel(
+                CHANNEL_ID,
+                "Hermes Engine",
+                NotificationManager.IMPORTANCE_LOW,
+            ).apply {
+                description = "Hermes AI Engine background service"
+            }
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(channel)
     }
 
     private fun createNotification(text: String): Notification {
-        val pendingIntent = PendingIntent.getActivity(
-            this,
-            0,
-            Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
+        val pendingIntent =
+            PendingIntent.getActivity(
+                this,
+                0,
+                Intent(this, MainActivity::class.java),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Hermes Engine")
             .setContentText(text)
