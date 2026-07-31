@@ -280,7 +280,7 @@ jobs:
       # Retry the emulator boot + tests — GitHub-hosted runners sometimes fail
       # to boot the AVD on the first attempt (adb: connection refused). The
       # retry loop waits for `sys.boot_completed` before running the tests.
-      - name: Run connectedDebugAndroidTest (with retry)
+      - name: Run connectedDebugAndroidTest
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
@@ -289,18 +289,7 @@ jobs:
           disable-animations: true
           force-avd-creation: true
           emulator-options: -no-window -no-audio -no-boot-anim -camera-back none -memory 2048 -no-snapshot -partition-size 2048
-          script: |
-            adb wait-for-device
-            for i in $(seq 1 60); do
-              BOOTED=$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
-              if [ "$BOOTED" = "1" ]; then
-                echo "Emulator booted after ${i}0s"
-                break
-              fi
-              echo "Waiting for emulator boot... ${i}0s"
-              sleep 10
-            done
-            ./gradlew connectedDebugAndroidTest --no-daemon
+          script: ./gradlew connectedDebugAndroidTest --no-daemon
 
       - name: Upload instrumented test reports
         if: always()
