@@ -257,6 +257,19 @@ jobs:
       - name: Grant Execute Permission for Gradlew
         run: chmod +x gradlew
 
+      # Free disk space — GitHub-hosted runners are often low on disk and the
+      # Android emulator needs ~7.4GB for its userdata partition. Without this
+      # cleanup the emulator crashes with "FATAL: Not enough space to create
+      # userdata partition".
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android/sdk/ndk
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/powershell
+          sudo rm -rf /usr/local/lib/node_modules
+          df -h / | tail -1
+
       # Enable KVM hardware acceleration on the Linux runner
       - name: Enable KVM group permissions
         run: |
@@ -275,7 +288,7 @@ jobs:
           arch: x86_64
           disable-animations: true
           force-avd-creation: true
-          emulator-options: -no-window -no-audio -no-boot-anim -camera-back none -memory 2048 -no-snapshot
+          emulator-options: -no-window -no-audio -no-boot-anim -camera-back none -memory 2048 -no-snapshot -partition-size 2048
           script: |
             adb wait-for-device
             for i in $(seq 1 60); do
