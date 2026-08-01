@@ -122,6 +122,15 @@ class EngineManager(private val context: Context) {
             currentState
         }
 
+    /**
+     * Shut down the engine and reset state.
+     * Called by [HermesEngineService.stopEngine] when the foreground service stops.
+     */
+    fun shutdown() {
+        Log.d(TAG, "Engine shutdown requested")
+        currentState = EngineState()
+    }
+
     private fun ensureEngine() {
         if (!Python.isStarted()) {
             Python.start(AndroidPlatform(context))
