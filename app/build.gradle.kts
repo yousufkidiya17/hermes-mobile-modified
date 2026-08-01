@@ -20,6 +20,11 @@ android {
         applicationId = "com.m57.hermescontrol"
         minSdk = 26
         targetSdk = 36
+        // Chaquopy requirement: specify which CPU architectures to bundle
+        // arm64-v8a = modern phones, armeabi-v7a = old phones, x86_64 = emulators
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+        }
         // Version overrides passed from CI via -PversionName / -PversionCode
         // Falls back to defaults for local development.
         versionCode = (project.findProperty("versionCode") as? String)?.toIntOrNull() ?: 1
