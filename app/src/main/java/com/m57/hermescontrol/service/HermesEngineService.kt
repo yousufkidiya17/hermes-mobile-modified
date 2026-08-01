@@ -76,9 +76,15 @@ class HermesEngineService : Service() {
         serviceScope.launch {
             try {
                 engineManager = EngineManager(this@HermesEngineService)
-                engineManager?.initialize()
-                _engineStatus.value = EngineStatus.READY
-                updateNotification("Hermes Engine Ready ✅")
+                val state = engineManager?.initialize()
+                if (state?.error != null) {
+                    Log.e(TAG, "Engine initialization returned error: ${state.error}")
+                    _engineStatus.value = EngineStatus.ERROR
+                    updateNotification("Engine Error: ${state.error}")
+                } else {
+                    _engineStatus.value = EngineStatus.READY
+                    updateNotification("Hermes Engine Ready ✅")
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Engine failed to start", e)
                 _engineStatus.value = EngineStatus.ERROR

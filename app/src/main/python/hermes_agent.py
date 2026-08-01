@@ -13,40 +13,46 @@ import re
 from pathlib import Path
 
 # === Configuration ===
-ZEN_API_URL = "https://opencode.ai/zen/v1/chat/completions"
-ZEN_API_KEY = "aetherix-master-7x9k2m4p"
-DEFAULT_MODEL = "opencode/mimo-v2.5-free"
+ZEN_API_URL = os.environ.get("ZEN_API_URL", "https://opencode.ai/zen/v1/chat/completions")
+ZEN_API_KEY = os.environ.get("ZEN_API_KEY", "")
+DEFAULT_MODEL = os.environ.get("ZEN_DEFAULT_MODEL", "opencode/mimo-v2.5-free")
 
 MEMORY_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hermes_memory.db")
 
-# === Memory (SQLite) ===
+# === Memory (SQLite) — thread-safe ===
 class Memory:
     def __init__(self, db_path=MEMORY_DB):
+        self._lock = threading.Lock()
         self.conn = sqlite3.connect(db_path, check_same_thread=False)
         self.conn.execute("CREATE TABLE IF NOT EXISTS memory (key TEXT PRIMARY KEY, value TEXT)")
         self.conn.execute("CREATE TABLE IF NOT EXISTS chat_history (id INTEGER PRIMARY KEY AUTOINCREMENT, role TEXT, content TEXT)")
         self.conn.commit()
 
     def get(self, key, default=""):
-        cur = self.conn.execute("SELECT value FROM memory WHERE key=?", (key,))
-        row = cur.fetchone()
-        return row[0] if row else default
+        with self._lock:
+            cur = self.conn.execute("SELECT value FROM memory WHERE key=?", (key,))
+            row = cur.fetchone()
+            return row[0] if row else default
 
     def set(self, key, value):
-        self.conn.execute("REPLACE INTO memory (key, value) VALUES (?, ?)", (key, value))
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute("REPLACE INTO memory (key, value) VALUES (?, ?)", (key, value))
+            self.conn.commit()
 
     def add_message(self, role, content):
-        self.conn.execute("INSERT INTO chat_history (role, content) VALUES (?, ?)", (role, content))
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute("INSERT INTO chat_history (role, content) VALUES (?, ?)", (role, content))
+            self.conn.commit()
 
     def get_history(self, limit=50):
-        cur = self.conn.execute("SELECT role, content FROM chat_history ORDER BY id DESC LIMIT ?", (limit,))
-        return list(reversed(cur.fetchall()))
+        with self._lock:
+            cur = self.conn.execute("SELECT role, content FROM chat_history ORDER BY id DESC LIMIT ?", (limit,))
+            return list(reversed(cur.fetchall()))
 
     def clear(self):
-        self.conn.execute("DELETE FROM chat_history")
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute("DELETE FROM chat_history")
+            self.conn.commit()
 
 # === Skills Loader ===
 class SkillsLoader:
@@ -116,17 +122,27 @@ class ToolRegistry:
         try:
             req = urllib.request.Request(
                 f"https://lite.duckduckgo.com/lite/?q={urllib.parse.quote(query)}",
-                headers={"User-Agent": "Mozilla/5.0"},
+                headers={"User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36"},
             )
             with urllib.request.urlopen(req, timeout=15) as resp:
                 html = resp.read().decode("utf-8", errors="replace")
-                results = re.findall(r'<a[^>]+class=.result-link.[^>]*>([^<]+)</a>', html)
+                # Try multiple patterns to handle DuckDuckGo HTML changes
+                results = re.findall(r'<a[^>]+class=["\']?result-link["\']?[^>]*>([^<]+)</a>', html)
+                if not results:
+                    results = re.findall(r'<a[^>]+rel=["\']nofollow["\'][^>]*>([^<]+)</a>', html)
+                if not results:
+                    results = re.findall(r'<a[^>]+href=["\']https?://(?!lite\.duckduckgo)[^"\'>]+["\'][^>]*>([^<]{10,})</a>', html)
                 return json.dumps([{"title": r.strip()} for r in results[:max_results]])
         except Exception as e:
             return f"Search error: {e}"
 
+    # Allowed URL schemes for web_fetch (prevent file:// SSRF)
+    _ALLOWED_SCHEMES = ("http://", "https://")
+
     def web_fetch(self, url, max_chars=5000):
         try:
+            if not any(url.lower().startswith(s) for s in self._ALLOWED_SCHEMES):
+                return "Fetch error: only http:// and https:// URLs are allowed"
             req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
             with urllib.request.urlopen(req, timeout=30) as resp:
                 content = resp.read().decode("utf-8", errors="replace")
@@ -134,8 +150,17 @@ class ToolRegistry:
         except Exception as e:
             return f"Fetch error: {e}"
 
+    # Paths blocked from read/write to prevent path traversal
+    _BLOCKED_PATHS = ("/etc/", "/proc/", "/sys/", "/dev/", "/system/")
+
+    def _is_safe_path(self, path):
+        resolved = os.path.realpath(path)
+        return not any(resolved.startswith(b) for b in self._BLOCKED_PATHS)
+
     def read_file(self, path):
         try:
+            if not self._is_safe_path(path):
+                return "Read error: access to this path is blocked"
             with open(path, "r") as f:
                 return f.read()
         except Exception as e:
@@ -143,6 +168,8 @@ class ToolRegistry:
 
     def write_file(self, path, content):
         try:
+            if not self._is_safe_path(path):
+                return "Write error: access to this path is blocked"
             with open(path, "w") as f:
                 f.write(content)
             return "File written successfully"
@@ -151,6 +178,8 @@ class ToolRegistry:
 
     def list_files(self, path="."):
         try:
+            if not self._is_safe_path(path):
+                return "List error: access to this path is blocked"
             files = os.listdir(path)
             return json.dumps(files[:50])
         except Exception as e:

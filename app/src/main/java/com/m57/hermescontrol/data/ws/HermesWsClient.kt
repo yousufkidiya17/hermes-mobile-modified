@@ -489,9 +489,8 @@ object HermesWsClient {
     }
 
     private fun isRetryableMessage(json: String): Boolean {
-        if (json.length > MAX_OUTBOUND_MESSAGE_BYTES) return false
-        if (json.length <= MAX_OUTBOUND_MESSAGE_BYTES / 4) return true
-        return json.utf8Size() <= MAX_OUTBOUND_MESSAGE_BYTES.toLong()
+        val byteSize = json.utf8Size()
+        return byteSize <= MAX_OUTBOUND_MESSAGE_BYTES.toLong()
     }
 
     private fun queueMessage(

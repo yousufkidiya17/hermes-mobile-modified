@@ -20,11 +20,11 @@ open class NotificationReplyReceiver : BroadcastReceiver() {
     companion object {
         const val KEY_TEXT_REPLY = "key_text_reply"
         const val EXTRA_SESSION_ID = "extra_session_id"
-    }
 
-    // Reusable scope for async reply processing — avoids creating a new
-    // unmanaged CoroutineScope per broadcast fire. (PERF-15)
-    private val replyScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        // Singleton scope shared across all broadcast instances — avoids
+        // leaking a new CoroutineScope per onReceive() call. (PERF-15)
+        private val replyScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    }
 
     /**
      * Test-friendly wrapper for [BroadcastReceiver.goAsync] which is `final`

@@ -48,7 +48,7 @@ class EngineManager(private val context: Context) {
                 // Step 3: Check engine status (tools, skills, python version)
                 val status = module.callAttr("get_status")
                 val toolsList = status.get("tools")
-                val skillsCount = status.get("skills")
+                val rawSkillsCount = status.get("skills")
                 val pyVersion = status.get("python")
 
                 currentState =
@@ -61,7 +61,7 @@ class EngineManager(private val context: Context) {
                                 .trim('[', ']')
                                 .split(", ")
                                 .filter { it.isNotEmpty() },
-                        skillsCount = (skillsCount as? Int) ?: 0,
+                        skillsCount = rawSkillsCount.toString().toIntOrNull() ?: 0,
                         pythonVersion = pyVersion.toString(),
                     )
                 Log.d(TAG, "Engine ready: Python $pyVersion, ${currentState.tools.size} tools")

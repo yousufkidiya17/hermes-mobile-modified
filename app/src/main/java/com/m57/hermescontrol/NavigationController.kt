@@ -15,7 +15,9 @@ import androidx.navigation3.runtime.NavKey
  * entries that compete for touch events.
  */
 object NavigationController {
+    @Volatile
     var backStack: NavBackStack<NavKey>? = null
+    @Volatile
     var pendingSessionId: String? = null
 
     // Top-level primary screens (Chat, Skills, Cron, System, Settings)
