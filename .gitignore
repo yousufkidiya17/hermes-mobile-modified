@@ -35,3 +35,4 @@ hermes-chat-redesign.html
 __pycache__/
 *.pyc
 hermes_memory.db
+test_file.txt
