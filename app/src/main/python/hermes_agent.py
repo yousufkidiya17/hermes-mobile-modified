@@ -127,7 +127,9 @@ class ToolRegistry:
         try:
             req = urllib.request.Request(
                 f"https://lite.duckduckgo.com/lite/?q={urllib.parse.quote(query)}",
-                headers={"User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36"},
+                # IMPORTANT: DDG returns a stripped page for Android UA (0 results).
+                # Use plain Mozilla/5.0 or desktop UA to get full result links.
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"},
             )
             with urllib.request.urlopen(req, timeout=15) as resp:
                 html = resp.read().decode("utf-8", errors="replace")
