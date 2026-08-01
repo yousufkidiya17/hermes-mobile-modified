@@ -22,6 +22,8 @@ ktlint
 
 # Local workspace artifacts and logs
 *.py
+!.gitignore
+!app/src/main/python/*.py
 .kotlin/
 
 
