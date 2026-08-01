@@ -51,13 +51,18 @@ class EngineManager(private val context: Context) {
                 val skillsCount = status.get("skills")
                 val pyVersion = status.get("python")
 
-                currentState = currentState.copy(
-                    pythonReady = true,
-                    engineRunning = true,
-                    tools = toolsList.toString().trim('[', ']').split(", ").filter { it.isNotEmpty() },
-                    skillsCount = (skillsCount as? Int) ?: 0,
-                    pythonVersion = pyVersion.toString(),
-                )
+                currentState =
+                    currentState.copy(
+                        pythonReady = true,
+                        engineRunning = true,
+                        tools = toolsList
+                            .toString()
+                            .trim('[', ']')
+                            .split(", ")
+                            .filter { it.isNotEmpty() },
+                        skillsCount = (skillsCount as? Int) ?: 0,
+                        pythonVersion = pyVersion.toString(),
+                    )
                 Log.d(TAG, "Engine ready: Python $pyVersion, ${currentState.tools.size} tools")
                 currentState
             } catch (e: Exception) {
@@ -87,7 +92,11 @@ class EngineManager(private val context: Context) {
     /**
      * Run a tool by name with args/kwargs.
      */
-    suspend fun runTool(name: String, args: List<Any> = emptyList(), kwargs: Map<String, Any> = emptyMap()): String =
+    suspend fun runTool(
+        name: String,
+        args: List<Any> = emptyList(),
+        kwargs: Map<String, Any> = emptyMap(),
+    ): String =
         withContext(Dispatchers.IO) {
             try {
                 ensureEngine()
