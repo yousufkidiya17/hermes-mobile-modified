@@ -6,6 +6,7 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.room)
     alias(libs.plugins.ksp)
+    id("com.chaquo.python")
 }
 
 android {
@@ -125,6 +126,20 @@ tasks.matching { it.name.endsWith("VersionControlInfo") }.configureEach {
 
 kotlin {
     jvmToolchain(21)
+}
+
+// ── Chaquopy: Embedded Python engine ──────────────────────────────────
+// Bundles Python interpreter + hermes_agent.py into the APK.
+// Python runs on-device via JNI — no Termux app, no libtermux dependency.
+chaquopy {
+    defaultConfig {
+        version = "3.11"
+    }
+    sourceSets {
+        getByName("main") {
+            srcDir("src/main/python")
+        }
+    }
 }
 
 room {

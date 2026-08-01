@@ -16,7 +16,7 @@ import kotlinx.coroutines.flow.StateFlow
 
 /**
  * Foreground service that manages the Hermes Engine lifecycle.
- * Starts libtermux (Linux env), Node.js (LocalBridge), and Python (Agent Engine).
+ * Starts the embedded Python engine (via Chaquopy) and keeps it alive.
  */
 class HermesEngineService : Service() {
     companion object {
@@ -36,9 +36,6 @@ class HermesEngineService : Service() {
     enum class EngineStatus {
         STOPPED,
         INITIALIZING,
-        INSTALLING_PACKAGES,
-        STARTING_LOCALBRIDGE,
-        STARTING_PYTHON,
         READY,
         ERROR,
     }

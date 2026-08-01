@@ -2,73 +2,63 @@ package com.m57.hermescontrol.service
 
 import android.content.Context
 import android.util.Log
+import com.chaquo.python.Python
+import com.chaquo.python.android.AndroidPlatform
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.File
 
 /**
- * Manages the Hermes Engine lifecycle: libtermux, LocalBridge (Node.js), Python Engine.
- * Bootstraps Linux environment, installs dependencies, starts services.
+ * Manages the embedded Hermes Engine via Chaquopy (bundled Python in APK).
+ * Python interpreter runs on-device via JNI — no Termux app, no libtermux.
+ * Kotlin calls Python functions directly through Chaquopy's Python API.
  */
 class EngineManager(private val context: Context) {
     companion object {
         const val TAG = "EngineManager"
-        const val LOCALBRIDGE_PORT = 4000
+        const val MODULE_NAME = "hermes_agent"
         const val ENGINE_PORT = 5000
     }
 
-    // Paths inside libtermux environment
-    // NOTE: must be instance properties — companion object cannot access `context`.
-    private val HERMES_HOME: String
-        get() = "${context.filesDir}/hermes-engine"
-    private val LOCALBRIDGE_JS: String
-        get() = "$HERMES_HOME/localbridge/server.mjs"
-    private val PYTHON_ENGINE: String
-        get() = "$HERMES_HOME/engine/hermes_agent.py"
-
     data class EngineState(
-        val termuxReady: Boolean = false,
-        val nodeReady: Boolean = false,
         val pythonReady: Boolean = false,
-        val localBridgeRunning: Boolean = false,
-        val pythonEngineRunning: Boolean = false,
+        val engineRunning: Boolean = false,
+        val tools: List<String> = emptyList(),
+        val skillsCount: Int = 0,
+        val pythonVersion: String? = null,
         val error: String? = null,
     )
 
     private var currentState = EngineState()
-    private var libtermuxProcess: Process? = null
 
     /**
-     * Initialize the Hermes Engine environment.
-     * Sets up libtermux, installs Node.js + Python, starts services.
+     * Initialize Chaquopy and load the Python engine.
      */
     suspend fun initialize(): EngineState =
         withContext(Dispatchers.IO) {
             try {
-                // Step 1: Extract Hermes Engine assets
-                Log.d(TAG, "Extracting engine assets...")
-                extractEngineAssets()
+                // Step 1: Start Chaquopy Python runtime
+                if (!Python.isStarted()) {
+                    Python.start(AndroidPlatform(context))
+                }
+                val py = Python.getInstance()
 
-                // Step 2: Initialize libtermux (Linux environment)
-                Log.d(TAG, "Initializing Linux environment...")
-                initTermuxEnvironment()
+                // Step 2: Load the hermes_agent module
+                val module = py.getModule(MODULE_NAME)
 
-                // Step 3: Install Node.js packages for LocalBridge
-                Log.d(TAG, "Installing LocalBridge dependencies...")
-                installLocalBridgeDeps()
+                // Step 3: Check engine status (tools, skills, python version)
+                val status = module.callAttr("get_status")
+                val toolsList = status.get("tools")
+                val skillsCount = status.get("skills")
+                val pyVersion = status.get("python")
 
-                // Step 4: Install Python dependencies
-                Log.d(TAG, "Installing Python dependencies...")
-                installPythonDeps()
-
-                // Step 5: Start LocalBridge (Node.js)
-                Log.d(TAG, "Starting LocalBridge on port $LOCALBRIDGE_PORT...")
-                startLocalBridge()
-
-                // Step 6: Start Python Hermes Engine
-                Log.d(TAG, "Starting Python Hermes Engine on port $ENGINE_PORT...")
-                startPythonEngine()
-
+                currentState = currentState.copy(
+                    pythonReady = true,
+                    engineRunning = true,
+                    tools = toolsList.toString().trim('[', ']').split(", ").filter { it.isNotEmpty() },
+                    skillsCount = (skillsCount as? Int) ?: 0,
+                    pythonVersion = pyVersion.toString(),
+                )
+                Log.d(TAG, "Engine ready: Python $pyVersion, ${currentState.tools.size} tools")
                 currentState
             } catch (e: Exception) {
                 Log.e(TAG, "Engine initialization failed", e)
@@ -77,179 +67,54 @@ class EngineManager(private val context: Context) {
             }
         }
 
-    private fun extractEngineAssets() {
-        val engineDir = File(HERMES_HOME)
-        if (!engineDir.exists()) {
-            engineDir.mkdirs()
-            // Assets will be bundled in APK's assets folder
-            // Copy from assets on first run
-            copyAsset("engine/localbridge", "$HERMES_HOME/localbridge")
-            copyAsset("engine/python", "$HERMES_HOME/engine")
-            copyAsset("skills", "$HERMES_HOME/skills")
-        }
-    }
-
-    private fun copyAsset(
-        assetPath: String,
-        destPath: String,
-    ) {
-        try {
-            val dest = File(destPath)
-            if (!dest.exists()) dest.mkdirs()
-            context.assets.list(assetPath)?.forEach { fileName ->
-                val source = "$assetPath/$fileName"
-                val target = File(dest, fileName)
-                context.assets.open(source).use { input ->
-                    target.outputStream().use { output ->
-                        input.copyTo(output)
-                    }
-                }
+    /**
+     * Send a chat message to the Python engine and get the reply.
+     */
+    suspend fun chat(message: String): String =
+        withContext(Dispatchers.IO) {
+            try {
+                ensureEngine()
+                val py = Python.getInstance()
+                val module = py.getModule(MODULE_NAME)
+                val result = module.callAttr("process_chat", message)
+                result.get("response").toString()
+            } catch (e: Exception) {
+                Log.e(TAG, "Chat failed", e)
+                "Engine error: ${e.message}"
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "Asset copy warning: ${e.message}")
         }
-    }
 
-    private fun initTermuxEnvironment() {
-        // libtermux bootstrap will create Linux environment
-        // We use Runtime.exec to initialize the package manager
-        try {
-            val process =
-                Runtime.getRuntime().exec(
-                    arrayOf(
-                        "sh",
-                        "-c",
-                        "echo 'Hermes Engine: Checking environment...'",
-                    ),
-                )
-            process.waitFor()
-            currentState = currentState.copy(termuxReady = true)
-        } catch (e: Exception) {
-            Log.w(TAG, "Termux init (non-critical): ${e.message}")
-            currentState = currentState.copy(termuxReady = true)
+    /**
+     * Run a tool by name with args/kwargs.
+     */
+    suspend fun runTool(name: String, args: List<Any> = emptyList(), kwargs: Map<String, Any> = emptyMap()): String =
+        withContext(Dispatchers.IO) {
+            try {
+                ensureEngine()
+                val py = Python.getInstance()
+                val module = py.getModule(MODULE_NAME)
+                val result = module.callAttr("run_tool", name, args, kwargs)
+                result.get("result").toString()
+            } catch (e: Exception) {
+                Log.e(TAG, "Tool $name failed", e)
+                "Tool error: ${e.message}"
+            }
         }
-    }
 
-    private fun installLocalBridgeDeps() {
-        // Check if Node.js is available, install packages
-        val nodeModules = File("$HERMES_HOME/localbridge/node_modules")
-        if (!nodeModules.exists()) {
-            runCommand(
-                "sh",
-                "-c",
-                "cd $HERMES_HOME/localbridge && npm install --production 2>/dev/null || true",
-            )
+    /**
+     * Get the current engine status (for UI display).
+     */
+    suspend fun getStatus(): EngineState =
+        withContext(Dispatchers.IO) {
+            if (!currentState.engineRunning) {
+                initialize()
+            }
+            currentState
         }
-        currentState = currentState.copy(nodeReady = true)
-    }
 
-    private fun installPythonDeps() {
-        val requirementsFile = File("$HERMES_HOME/engine/requirements.txt")
-        if (requirementsFile.exists()) {
-            runCommand(
-                "sh",
-                "-c",
-                "pip install -r $HERMES_HOME/engine/requirements.txt 2>/dev/null || true",
-            )
-        }
-        currentState = currentState.copy(pythonReady = true)
-    }
-
-    private fun startLocalBridge() {
-        val serverFile = File(LOCALBRIDGE_JS)
-        if (serverFile.exists()) {
-            libtermuxProcess =
-                Runtime.getRuntime().exec(
-                    arrayOf(
-                        "sh",
-                        "-c",
-                        "cd $HERMES_HOME/localbridge && node server.mjs &",
-                    ),
-                )
-            currentState = currentState.copy(localBridgeRunning = true)
-            Log.d(TAG, "LocalBridge started on port $LOCALBRIDGE_PORT")
-        } else {
-            Log.w(TAG, "LocalBridge server.mjs not found, starting simple HTTP proxy instead")
-            startSimpleProxy()
-        }
-    }
-
-    private fun startSimpleProxy() {
-        // Fallback: Start a simple Python HTTP proxy as LocalBridge
-        Runtime.getRuntime().exec(
-            arrayOf(
-                "sh",
-                "-c",
-                """
-                    python3 -c "
-                import http.server, json, urllib.request, sys
-                PORT = $LOCALBRIDGE_PORT
-
-                class ProxyHandler(http.server.BaseHTTPRequestHandler):
-                    def do_GET(self):
-                        if self.path == '/health':
-                            self.send_response(200)
-                            self.send_header('Content-Type', 'application/json')
-                            self.end_headers()
-                            self.wfile.write(json.dumps({'status': 'ok', 'service': 'Hermes LocalBridge'}).encode())
-                    def do_POST(self):
-                        if self.path == '/v1/chat/completions':
-                            content_len = int(self.headers.get('Content-Length', 0))
-                            body = json.loads(self.rfile.read(content_len))
-                            # Forward to OpenCode Zen API
-                            req = urllib.request.Request(
-                                'https://opencode.ai/zen/v1/chat/completions',
-                                data=json.dumps(body).encode(),
-                                headers={'Content-Type': 'application/json',
-                                         'Authorization': 'Bearer aetherix-master-7x9k2m4p'}
-                            )
-                            resp = urllib.request.urlopen(req)
-                            self.send_response(200)
-                            self.send_header('Content-Type', 'application/json')
-                            self.end_headers()
-                            self.wfile.write(resp.read())
-
-                http.server.HTTPServer(('127.0.0.1', PORT), ProxyHandler).serve_forever()
-                " &
-                """.trimIndent(),
-            ),
-        )
-        currentState = currentState.copy(localBridgeRunning = true)
-    }
-
-    private fun startPythonEngine() {
-        val engineFile = File(PYTHON_ENGINE)
-        if (engineFile.exists()) {
-            Runtime.getRuntime().exec(
-                arrayOf(
-                    "sh",
-                    "-c",
-                    "cd $HERMES_HOME/engine && python3 hermes_agent.py --port $ENGINE_PORT &",
-                ),
-            )
-            currentState = currentState.copy(pythonEngineRunning = true)
-            Log.d(TAG, "Python Hermes Engine started on port $ENGINE_PORT")
-        }
-    }
-
-    private fun runCommand(vararg cmd: String): String? {
-        return try {
-            val process = Runtime.getRuntime().exec(cmd)
-            process.waitFor()
-            process.inputStream.bufferedReader().readText().trim().ifEmpty { null }
-        } catch (e: Exception) {
-            Log.w(TAG, "Command failed: ${cmd.joinToString(" ")} - ${e.message}")
-            null
-        }
-    }
-
-    fun shutdown() {
-        try {
-            libtermuxProcess?.destroy()
-            runCommand("sh", "-c", "pkill -f 'node server.mjs' 2>/dev/null || true")
-            runCommand("sh", "-c", "pkill -f 'hermes_agent.py' 2>/dev/null || true")
-        } catch (e: Exception) {
-            Log.w(TAG, "Shutdown warning: ${e.message}")
+    private fun ensureEngine() {
+        if (!Python.isStarted()) {
+            Python.start(AndroidPlatform(context))
         }
     }
 }
