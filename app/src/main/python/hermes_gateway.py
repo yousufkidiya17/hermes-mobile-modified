@@ -301,8 +301,18 @@ def start_gateway_sync():
             body = json.dumps({"status": "ok", "service": "Hermes Mobile"}).encode()
             return Response(200, "OK", Headers({"Content-Type": "application/json"}), body)
         if path == "/" or path == "/api":
-            body = json.dumps({"service": "Hermes Mobile Gateway", "ws": "/api/ws"}).encode()
-            return Response(200, "OK", Headers({"Content-Type": "application/json"}), body)
+            # The app (AuthLoginViewModel) fetches the root page and extracts the
+            # session token from __HERMES_SESSION_TOKEN__ (loopback mode). Embed it
+            # so the login auto-populates and skips the manual token prompt.
+            body = (
+                "<!DOCTYPE html><html><head><title>Hermes Mobile Gateway</title></head>"
+                "<body>"
+                "<script>window.__HERMES_SESSION_TOKEN__ = \"hermes-mobile-token\";</script>"
+                "<h1>Hermes Mobile Gateway</h1>"
+                "<p>WebSocket: /api/ws</p>"
+                "</body></html>"
+            ).encode()
+            return Response(200, "OK", Headers({"Content-Type": "text/html"}), body)
         # Anything else -> let the WebSocket layer handle it (404 for non-WS).
         return None
 
