@@ -28,3 +28,8 @@ ktlint
 # direnv
 .direnv/
 hermes-chat-redesign.html
+
+# Python artifacts
+__pycache__/
+*.pyc
+hermes_memory.db
