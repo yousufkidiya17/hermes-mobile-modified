@@ -139,6 +139,10 @@ kotlin {
 chaquopy {
     defaultConfig {
         version = "3.11"
+        pip {
+            // WebSocket server for the on-device gateway (port 9119)
+            install("websockets")
+        }
     }
     sourceSets {
         getByName("main") {

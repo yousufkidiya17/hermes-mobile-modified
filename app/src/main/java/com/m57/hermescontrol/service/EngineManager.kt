@@ -45,6 +45,17 @@ class EngineManager(private val context: Context) {
                 // Step 2: Load the hermes_agent module
                 val module = py.getModule(MODULE_NAME)
 
+                // Step 2b: Start the WebSocket gateway (port 9119) so the app
+                // can connect to ws://127.0.0.1:9119/api/ws — the same JSON-RPC
+                // protocol the desktop Hermes gateway speaks.
+                try {
+                    val gateway = py.getModule("hermes_gateway")
+                    gateway.callAttr("start_gateway_background")
+                    Log.d(TAG, "Gateway started on port 9119")
+                } catch (ge: Exception) {
+                    Log.w(TAG, "Gateway start failed (non-fatal): ${ge.message}")
+                }
+
                 // Step 3: Check engine status (tools, skills, python version)
                 val status = module.callAttr("get_status")
                 val toolsList = status.get("tools")

@@ -15,7 +15,9 @@ from pathlib import Path
 # === Configuration ===
 ZEN_API_URL = os.environ.get("ZEN_API_URL", "https://opencode.ai/zen/v1/chat/completions")
 ZEN_API_KEY = os.environ.get("ZEN_API_KEY", "")
-DEFAULT_MODEL = os.environ.get("ZEN_DEFAULT_MODEL", "opencode/mimo-v2.5-free")
+# OpenCode Zen expects the bare model name WITHOUT the "opencode/" prefix
+# (the desktop LocalBridge strips it: .replace("opencode/", "")).
+DEFAULT_MODEL = os.environ.get("ZEN_DEFAULT_MODEL", "mimo-v2.5-free")
 
 MEMORY_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hermes_memory.db")
 
@@ -83,11 +85,14 @@ class LLMClient:
             "messages": messages,
             "stream": stream,
         }).encode()
+        # Cloudflare (OpenCode Zen front) blocks Python-urllib's default UA
+        # (error 1010). Use a browser-like User-Agent, same as the Node bridge.
         req = urllib.request.Request(
             self.base_url,
             data=data,
             headers={
                 "Content-Type": "application/json",
+                "User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/124.0 Mobile Safari/537.36",
                 "Authorization": f"Bearer {self.api_key}",
             },
             method="POST",
