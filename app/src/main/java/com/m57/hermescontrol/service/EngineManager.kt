@@ -55,11 +55,12 @@ class EngineManager(private val context: Context) {
                     currentState.copy(
                         pythonReady = true,
                         engineRunning = true,
-                        tools = toolsList
-                            .toString()
-                            .trim('[', ']')
-                            .split(", ")
-                            .filter { it.isNotEmpty() },
+                        tools =
+                            toolsList
+                                .toString()
+                                .trim('[', ']')
+                                .split(", ")
+                                .filter { it.isNotEmpty() },
                         skillsCount = (skillsCount as? Int) ?: 0,
                         pythonVersion = pyVersion.toString(),
                     )
