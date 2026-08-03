@@ -50,7 +50,7 @@ def _session_dict(sid):
 
 def _ensure_session(sid):
     if sid and sid not in _sessions:
-        _sessions[sid] = {"title": "New Chat", "created": time.time(), "messages": 0}
+        _sessions[sid] = {"title": "New Chat", "created": time.time(), "messages": 0, "images": []}
     return sid or _new_session_id()
 
 
@@ -71,7 +71,7 @@ def handle_session_active_list(params):
 
 def handle_session_create(params):
     sid = _new_session_id()
-    _sessions[sid] = {"title": "New Chat", "created": time.time(), "messages": 0}
+    _sessions[sid] = {"title": "New Chat", "created": time.time(), "messages": 0, "images": []}
     return _session_dict(sid)
 
 
@@ -129,7 +129,13 @@ async def handle_prompt_submit(params, ws):
 
     try:
         from hermes_agent import process_chat
-        result = await asyncio.to_thread(process_chat, text)
+        # Pass any gateway-staged images (image.attach_bytes) as data-URIs,
+        # then clear them so they don't leak into the next message.
+        sess = _sessions.get(sid, {})
+        staged = list(sess.get("images", []))
+        sess["images"] = []
+        data_uris = [f"data:{img['mime']};base64,{img['data']}" for img in staged]
+        result = await asyncio.to_thread(process_chat, text, 20, data_uris)
         reply = result.get("response", "") if isinstance(result, dict) else str(result)
         model = result.get("model", "") if isinstance(result, dict) else ""
     except Exception as e:
@@ -163,6 +169,27 @@ async def handle_session_interrupt(params, ws):
     return {"status": "ok"}
 
 
+def handle_image_attach_bytes(params):
+    """Stage an image (base64 data URI) into the session so the next prompt.submit
+    sends it as multimodal content. Mirrors the app's `image.attach_bytes` RPC."""
+    sid = params.get("session_id")
+    content = params.get("content_base64", "")  # "data:image/png;base64,...."
+    filename = params.get("filename", "image")
+    if not sid:
+        return {"error": "session_id required", "attached": False}
+    sess = _sessions.setdefault(sid, {"title": "New Chat", "created": time.time(), "messages": 0, "images": []})
+    sess.setdefault("images", [])
+    if content.startswith("data:"):
+        header, _, b64 = content.partition(",")
+        mime = header[5:].split(";")[0] or "image/png"
+        sess["images"].append(
+            {"filename": filename, "mime": mime, "data": b64}
+        )
+        log.info("image attached to session %s (%s,%dB)", sid, mime, len(b64))
+        return {"attached": True, "session_id": sid}
+    return {"attached": False, "error": "content_base64 must be a data URI"}
+
+
 _HANDLERS = {
     "session.list": handle_session_list,
     "session.active_list": handle_session_active_list,
@@ -173,6 +200,7 @@ _HANDLERS = {
     "commands.catalog": handle_commands_catalog,
     "prompt.submit": handle_prompt_submit,
     "session.interrupt": handle_session_interrupt,
+    "image.attach_bytes": handle_image_attach_bytes,
 }
 
 

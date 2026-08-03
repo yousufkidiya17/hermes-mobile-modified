@@ -7,6 +7,7 @@ import os
 import sys
 import sqlite3
 import threading
+import base64
 import urllib.request
 import urllib.parse
 import re
@@ -210,21 +211,87 @@ tools = ToolRegistry()
 llm = LLMClient()
 
 
-def process_chat(message, history_limit=20):
-    """Main entry point: Kotlin calls this with a user message, gets a reply."""
+def process_chat(message, history_limit=20, images=None):
+    """Main entry point: Kotlin calls this with a user message, gets a reply.
+    Supports vision via two sources:
+      - `@file:/path` refs in the message (filesystem images), and
+      - `images` arg: list of base64 data-URIs staged by the gateway
+        (from `image.attach_bytes`)."""
     history = memory.get_history()
     system_prompt = skills.get_system_prompt()
 
     messages = [{"role": "system", "content": system_prompt}]
     for role, content in history[-history_limit:]:
         messages.append({"role": role, "content": content})
-    messages.append({"role": "user", "content": message})
+
+    # Build user content — text + filesystem @file: refs first
+    user_content, image_refs = _build_user_content(message)
+
+    # Merge gateway-staged data-URI images (from image.attach_bytes)
+    data_uis = images or []
+    if data_uis:
+        parts = [{"type": "text", "text": user_content}] if isinstance(user_content, str) else list(user_content)
+        # Drop the placeholder text if it's the only stub when we have images
+        for du in data_uis:
+            parts.append({"type": "image_url", "image_url": {"url": du}})
+        user_content = parts
+
+    messages.append({"role": "user", "content": user_content})
 
     response = llm.chat(messages)
     memory.add_message("user", message)
     memory.add_message("assistant", response)
 
-    return {"response": response, "model": llm.model}
+    return {"response": response, "model": llm.model, "images": list(image_refs)}
+
+
+_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
+
+
+def _build_user_content(message):
+    """Split a message into multimodal OpenAI content parts.
+    Returns (content, image_refs):
+      - content is a str (no images) or a list of content parts (with images).
+      - image_refs is a list of image paths successfully loaded."""
+    refs = re.findall(r"@file:([^\s]+)", message)
+    if not refs:
+        return message, []
+
+    parts = []
+    # Remove @file: refs from the visible text but keep the rest.
+    text = re.sub(r"@file:\S+\s*", "", message).strip()
+    if text:
+        parts.append({"type": "text", "text": text})
+
+    loaded = []
+    for ref in refs:
+        path = urllib.parse.unquote(ref)
+        ext = os.path.splitext(path)[1].lower()
+        if ext not in _IMAGE_EXTENSIONS:
+            continue  # non-image refs are ignored for now
+        if os.path.exists(path):
+            try:
+                with open(path, "rb") as f:
+                    b64 = base64.b64encode(f.read()).decode()
+                mime = "image/png" if ext == ".png" else \
+                    "image/gif" if ext == ".gif" else \
+                    "image/webp" if ext == ".webp" else \
+                    "image/bmp" if ext == ".bmp" else "image/jpeg"
+                parts.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{mime};base64,{b64}"},
+                })
+                loaded.append(path)
+            except Exception:
+                pass
+        else:
+            parts.append({"type": "text", "text": f"[Image not found: {ref}]"})
+
+    if not parts:
+        return message, []
+    if len(parts) == 1 and parts[0]["type"] == "text":
+        return parts[0]["text"], loaded
+    return parts, loaded
 
 
 def run_tool(name, args=None, kwargs=None):
