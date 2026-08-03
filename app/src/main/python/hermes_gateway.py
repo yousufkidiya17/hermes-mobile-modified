@@ -317,23 +317,25 @@ def start_gateway_sync():
         # Strip any query string (app may request /api/skills?refresh=false);
         # the WebSocket layer uses request.path for the WS handshake too.
         path = (request.path or "").split("?", 1)[0]
+
+        def json_resp(payload, code=200):
+            return Response(code, "OK", Headers({"Content-Type": "application/json"}), json.dumps(payload).encode())
+
         if path == "/api/status":
-            payload = {
+            return json_resp({
                 "status": "ok",
                 "auth_required": False,
                 "auth_providers": [],
                 "version": "0.1.0-mobile",
                 "service": "Hermes Mobile Gateway",
-            }
-            body = json.dumps(payload).encode()
-            return Response(200, "OK", Headers({"Content-Type": "application/json"}), body)
+            })
         if path == "/api/health":
-            body = json.dumps({"status": "ok", "service": "Hermes Mobile"}).encode()
-            return Response(200, "OK", Headers({"Content-Type": "application/json"}), body)
+            return json_resp({"status": "ok", "service": "Hermes Mobile"})
+
         if path == "/api/skills":
             # App's SkillsScreen calls GET api/skills -> List<Skill>
             try:
-                from hermes_agent import skills as _skills_loader, list_skills
+                from hermes_agent import skills as _skills_loader
                 payload = []
                 for s in _skills_loader.skills:
                     payload.append({
@@ -343,21 +345,47 @@ def start_gateway_sync():
                         "enabled": True,
                         "source": "built-in",
                     })
-                body = json.dumps(payload).encode()
-                return Response(200, "OK", Headers({"Content-Type": "application/json"}), body)
-            except Exception as e:
+                return json_resp(payload)
+            except Exception:
                 log.exception("api/skills failed")
-                body = json.dumps([]).encode()
-                return Response(200, "OK", Headers({"Content-Type": "application/json"}), body)
+                return json_resp([])
+
         if path == "/api/tools":
+            # App's ToolsetsScreen / models list uses GET api/tools
             try:
                 from hermes_agent import list_tools
                 payload = [{"name": t, "description": "", "enabled": True} for t in list_tools()["tools"]]
-                body = json.dumps(payload).encode()
-                return Response(200, "OK", Headers({"Content-Type": "application/json"}), body)
+                return json_resp(payload)
             except Exception:
-                body = json.dumps([]).encode()
-                return Response(200, "OK", Headers({"Content-Type": "application/json"}), body)
+                return json_resp([])
+
+        if path == "/api/tools/toolsets":
+            # App's ToolsetsScreen calls GET api/tools/toolsets -> List<Toolset>
+            try:
+                from hermes_agent import list_tools
+                all_tools = list_tools()["tools"]
+                groups = {
+                    "web": ["web_search", "web_fetch", "skill_search", "skill_get"],
+                    "file": ["read_file", "write_file", "list_files"],
+                    "terminal": ["run_command"],
+                    "system": ["get_time", "system_info", "calculator"],
+                    "memory": ["memory_get", "memory_set"],
+                }
+                payload = []
+                for name, tools_list in groups.items():
+                    payload.append({
+                        "name": name,
+                        "label": name.capitalize(),
+                        "description": name + " tools",
+                        "enabled": all(t in all_tools for t in tools_list),
+                        "available": True,
+                        "configured": True,
+                        "tools": [t for t in tools_list if t in all_tools],
+                    })
+                return json_resp(payload)
+            except Exception:
+                return json_resp([])
+
         if path == "/" or path == "/api":
             # The app (AuthLoginViewModel) fetches the root page and extracts the
             # session token from __HERMES_SESSION_TOKEN__ (loopback mode). Embed it
@@ -371,8 +399,10 @@ def start_gateway_sync():
                 "</body></html>"
             ).encode()
             return Response(200, "OK", Headers({"Content-Type": "text/html"}), body)
+
         # Anything else -> let the WebSocket layer handle it (404 for non-WS).
         return None
+
 
     async def main():
         async with websockets.serve(
