@@ -323,6 +323,13 @@ def get_status():
     }
 
 
+def get_status_json():
+    """JSON-string variant of get_status — Chaquopy PyObject auto-conversion
+    of nested lists is unreliable on some devices, so Kotlin parses this
+    instead of reading PyObject fields directly."""
+    return json.dumps(get_status())
+
+
 def set_model(model_name):
     llm.model = model_name
     return {"ok": True, "model": llm.model}

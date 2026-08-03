@@ -6,6 +6,7 @@ import com.chaquo.python.Python
 import com.chaquo.python.android.AndroidPlatform
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 
 /**
  * Manages the embedded Hermes Engine via Chaquopy (bundled Python in APK).
@@ -56,26 +57,30 @@ class EngineManager(private val context: Context) {
                     Log.w(TAG, "Gateway start failed (non-fatal): ${ge.message}")
                 }
 
-                // Step 3: Check engine status (tools, skills, python version)
-                val status = module.callAttr("get_status")
-                val toolsList = status.get("tools")
-                val rawSkillsCount = status.get("skills")
-                val pyVersion = status.get("python")
+                // Step 3: Check engine status (tools, skills, python version).
+                // get_status_json() returns a JSON string — Chaquopy's PyObject
+                // nested-list conversion is unreliable ("Python null, 1 tools"),
+                // so we parse JSON which is always reliable.
+                val statusJson = module.callAttr("get_status_json").toString()
+                val status = org.json.JSONObject(statusJson)
+
+                val toolsArr = status.optJSONArray("tools") ?: JSONArray()
+                val toolsList = mutableListOf<String>()
+                for (i in 0 until toolsArr.length()) {
+                    toolsArr.optString(i).takeIf { it.isNotEmpty() }?.let(toolsList::add)
+                }
+                val skillsCount = status.optInt("skills", 0)
+                val pyVersion = status.optString("python", "")
 
                 currentState =
                     currentState.copy(
                         pythonReady = true,
                         engineRunning = true,
-                        tools =
-                            toolsList
-                                .toString()
-                                .trim('[', ']')
-                                .split(", ")
-                                .filter { it.isNotEmpty() },
-                        skillsCount = rawSkillsCount.toString().toIntOrNull() ?: 0,
-                        pythonVersion = pyVersion.toString(),
+                        tools = toolsList,
+                        skillsCount = skillsCount,
+                        pythonVersion = pyVersion,
                     )
-                Log.d(TAG, "Engine ready: Python $pyVersion, ${currentState.tools.size} tools")
+                Log.d(TAG, "Engine ready: Python $pyVersion, ${currentState.tools.size} tools, $skillsCount skills")
                 currentState
             } catch (e: Exception) {
                 Log.e(TAG, "Engine initialization failed", e)
