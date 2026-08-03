@@ -59,19 +59,72 @@ class Memory:
 
 # === Skills Loader ===
 class SkillsLoader:
-    def __init__(self):
+    """Loads real Hermes skills (SKILL.md files) from the bundled skills/ tree.
+
+    Hermes skills live in nested folders (e.g. skills/devops/docker/SKILL.md),
+    so we walk the tree recursively. Each skill's name is its relative path
+    (folder-based), matching how the desktop agent indexes them. Only the
+    YAML frontmatter description is injected into the system prompt — full
+    skill bodies would blow the context (54MB of markdown)."""
+
+    def __init__(self, max_descriptions=400):
         self.skills = []
+        self._index = {}
         skills_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "skills")
         if os.path.exists(skills_dir):
-            for f in Path(skills_dir).glob("*.md"):
-                self.skills.append({"name": f.stem, "content": f.read_text()})
+            for f in sorted(Path(skills_dir).rglob("SKILL.md")):
+                try:
+                    name = f.parent.name  # folder name, e.g. "docker"
+                    rel = f.relative_to(skills_dir)
+                    key = str(rel.parent).replace("\\", "/")  # e.g. "devops/docker"
+                    text = f.read_text(encoding="utf-8", errors="replace")
+                    desc = _skill_description(text)
+                    self.skills.append({"name": name, "path": key, "content": text, "description": desc})
+                    self._index[key] = self.skills[-1]
+                except Exception:
+                    continue
+        # Sort by name for stable output
+        self.skills.sort(key=lambda s: s["name"])
 
-    def get_system_prompt(self):
-        base = "You are Hermes Agent, an intelligent AI assistant running on a phone."
+    def get_system_prompt(self, max_descriptions=400):
+        base = "You are Hermes Agent, an intelligent AI assistant running on a phone.\n"
         if self.skills:
-            skills_text = "\n\nAvailable Skills:\n" + "\n".join(f"- {s['name']}: {s['content'][:100]}" for s in self.skills)
-            return base + skills_text
+            lines = []
+            for s in self.skills[:max_descriptions]:
+                d = s["description"] or s["content"][:80].replace("\n", " ")
+                lines.append(f"- {s['path']}: {d[:100]}")
+            if len(self.skills) > max_descriptions:
+                lines.append(f"- ... and {len(self.skills) - max_descriptions} more skills")
+            return base + "\nAvailable Skills:\n" + "\n".join(lines)
         return base
+
+    def get_skill(self, path):
+        """Look up a skill by its relative path (e.g. 'devops/docker')."""
+        return self._index.get(path)
+
+    def list_skills(self):
+        return [{"name": s["name"], "path": s["path"], "description": s["description"]} for s in self.skills]
+
+
+def _skill_description(text):
+    """Extract the `description:` value from a SKILL.md YAML frontmatter. Falls
+    back to the first non-empty line if there's no frontmatter or no description."""
+    if text.startswith("---"):
+        parts = text.split("---", 2)
+        if len(parts) >= 3:
+            fm = parts[1]
+            for line in fm.splitlines():
+                stripped = line.strip()
+                if stripped.startswith("description") or stripped.startswith("description:"):
+                    val = stripped.split(":", 1)[1].strip().strip("\"'")
+                    if val:
+                        return val
+    # fallback: first meaningful line
+    for line in text.splitlines():
+        s = line.strip()
+        if s and not s.startswith("#") and not s.startswith("---"):
+            return s[:120]
+    return text[:120].replace("\n", " ")
 
 # === LLM Client (direct to OpenCode Zen) ===
 class LLMClient:

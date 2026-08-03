@@ -328,6 +328,34 @@ def start_gateway_sync():
         if path == "/api/health":
             body = json.dumps({"status": "ok", "service": "Hermes Mobile"}).encode()
             return Response(200, "OK", Headers({"Content-Type": "application/json"}), body)
+        if path == "/api/skills":
+            # App's SkillsScreen calls GET api/skills -> List<Skill>
+            try:
+                from hermes_agent import skills as _skills_loader, list_skills
+                payload = []
+                for s in _skills_loader.skills:
+                    payload.append({
+                        "name": s["name"],
+                        "description": s.get("description") or "",
+                        "category": s["path"].split("/")[0] if "/" in s["path"] else "general",
+                        "enabled": True,
+                        "source": "built-in",
+                    })
+                body = json.dumps(payload).encode()
+                return Response(200, "OK", Headers({"Content-Type": "application/json"}), body)
+            except Exception as e:
+                log.exception("api/skills failed")
+                body = json.dumps([]).encode()
+                return Response(200, "OK", Headers({"Content-Type": "application/json"}), body)
+        if path == "/api/tools":
+            try:
+                from hermes_agent import list_tools
+                payload = [{"name": t, "description": "", "enabled": True} for t in list_tools()["tools"]]
+                body = json.dumps(payload).encode()
+                return Response(200, "OK", Headers({"Content-Type": "application/json"}), body)
+            except Exception:
+                body = json.dumps([]).encode()
+                return Response(200, "OK", Headers({"Content-Type": "application/json"}), body)
         if path == "/" or path == "/api":
             # The app (AuthLoginViewModel) fetches the root page and extracts the
             # session token from __HERMES_SESSION_TOKEN__ (loopback mode). Embed it

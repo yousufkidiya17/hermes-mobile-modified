@@ -24,6 +24,7 @@ ktlint
 *.py
 !.gitignore
 !app/src/main/python/*.py
+!app/src/main/python/skills/**/*.py
 .kotlin/
 
 
