@@ -314,7 +314,9 @@ def start_gateway_sync():
     # These return plain HTTP JSON so the app's OkHttp probe succeeds.
     # (websockets >= 14 passes (connection, request); request.path has the path.)
     def process_request(connection, request):
-        path = request.path
+        # Strip any query string (app may request /api/skills?refresh=false);
+        # the WebSocket layer uses request.path for the WS handshake too.
+        path = (request.path or "").split("?", 1)[0]
         if path == "/api/status":
             payload = {
                 "status": "ok",
