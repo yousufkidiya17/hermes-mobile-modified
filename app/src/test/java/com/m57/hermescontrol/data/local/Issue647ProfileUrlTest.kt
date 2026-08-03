@@ -135,7 +135,7 @@ class Issue647ProfileUrlTest {
         // top-level base URL, and the store-level display must all reflect the
         // login URL — never the hardcoded 127.0.0.1:9119 (issue #647).
         val loginUrl = "http://192.168.1.57:9119/"
-        val loopback = "https://127.0.0.1:9119/"
+        val loopback = "http://127.0.0.1:9119/"
 
         // Seed the Default profile the way the app does (host/port -> loopback).
         AuthManager.ensureDefaultProfile()

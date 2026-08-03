@@ -129,8 +129,8 @@ class ServerEndpointTest {
     }
 
     @Test
-    fun `DEFAULT_BASE_URL is https localhost 9119`() {
-        assertEquals("https://127.0.0.1:9119/", ServerEndpoint.DEFAULT_BASE_URL)
+    fun `DEFAULT_BASE_URL is http localhost 9119`() {
+        assertEquals("http://127.0.0.1:9119/", ServerEndpoint.DEFAULT_BASE_URL)
     }
 
     private inline fun <reified T : Throwable> assertThrows(block: () -> Unit) {
