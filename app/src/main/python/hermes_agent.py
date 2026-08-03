@@ -173,6 +173,11 @@ class ToolRegistry:
         self.register("get_time", self.get_time, "Get current date and time")
         self.register("memory_get", self.memory_get, "Read a value from memory")
         self.register("memory_set", self.memory_set, "Store a value in memory")
+        self.register("skill_search", self.skill_search, "Search installed skills by keyword")
+        self.register("skill_get", self.skill_get, "Get the full content of a skill by path")
+        self.register("calculator", self.calculator, "Evaluate a math expression safely")
+        self.register("system_info", self.system_info, "Get device + engine information")
+        self.register("run_command", self.run_command, "Run a shell command in the app sandbox")
 
     def register(self, name, handler, description=""):
         self.tools[name] = {"handler": handler, "description": description}
@@ -256,6 +261,80 @@ class ToolRegistry:
     def memory_set(self, key, value):
         memory.set(key, value)
         return "ok"
+
+    def skill_search(self, query, limit=8):
+        """Search installed skills by keyword (name, path, description)."""
+        results = []
+        q = query.lower()
+        for s in skills.skills:
+            haystack = f"{s['path']} {s['name']} {s.get('description') or ''}".lower()
+            if q in haystack:
+                results.append({"name": s["name"], "path": s["path"], "description": s.get("description") or ""})
+                if len(results) >= limit:
+                    break
+        if not results and query.strip():
+            for s in skills.skills:
+                if any(tok in s["path"].lower() for tok in query.lower().split()):
+                    results.append({"name": s["name"], "path": s["path"], "description": s.get("description") or ""})
+                    if len(results) >= limit:
+                        break
+        return json.dumps(results or {"message": "No skills found for: " + query})
+
+    def skill_get(self, path):
+        """Fetch a skill's full SKILL.md content by its path (e.g. 'devops/docker')."""
+        skill = skills.get_skill(path)
+        if not skill:
+            return json.dumps({"error": "Skill not found: " + path})
+        content = skill["content"]
+        if len(content) > 12000:
+            content = content[:12000] + "\n...[truncated]"
+        return json.dumps({"name": skill["name"], "path": skill["path"], "content": content})
+
+    def calculator(self, expression):
+        """Safely evaluate a math expression (numbers, + - * / ** % // parentheses)."""
+        import ast as _ast
+        allowed = {"Expression", "BinOp", "UnaryOp", "Add", "Sub", "Mult", "Div", "Mod", "FloorDiv", "Pow", "USub", "UAdd", "Constant"}
+        try:
+            tree = _ast.parse(expression, mode="eval")
+            for node in _ast.walk(tree):
+                if type(node).__name__ not in allowed:
+                    return "Calculator error: unsupported expression"
+            result = eval(compile(tree, "<calc>", "eval"), {"__builtins__": {}}, {})
+            return str(result)
+        except Exception as e:
+            return "Calculator error: " + str(e)
+
+    def system_info(self):
+        """Return device + engine information."""
+        import platform
+        return json.dumps({
+            "platform": platform.system(),
+            "python": platform.python_version(),
+            "skills": len(skills.skills),
+            "tools": list(tools.tools.keys()),
+            "model": llm.model,
+            "memory_keys": list(memory.db_dump().keys()) if hasattr(memory, "db_dump") else None,
+        })
+
+    def run_command(self, command, timeout=10):
+        """Run a shell command inside the app sandbox (read-only safety: no rm/sudo)."""
+        import subprocess
+        cmd = command.strip()
+        if not cmd:
+            return "run_command: empty command"
+        low = cmd.lower()
+        for banned in ("rm -rf", "sudo", "mkfs", "dd if=", "shutdown", "reboot", "> /dev/sda"):
+            if banned in low:
+                return "run_command: command blocked (safety)"
+        try:
+            p = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)
+            out = (p.stdout or "")[:4000]
+            err = (p.stderr or "")[:1000]
+            return json.dumps({"exit": p.returncode, "stdout": out, "stderr": err})
+        except subprocess.TimeoutExpired:
+            return json.dumps({"exit": -1, "error": "timeout"})
+        except Exception as e:
+            return json.dumps({"exit": -1, "error": str(e)})
 
 # === Agent Engine (single instance) ===
 memory = Memory()
