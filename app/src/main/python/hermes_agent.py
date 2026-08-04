@@ -133,17 +133,24 @@ class LLMClient:
         self.api_key = api_key
         self.model = model
 
-    def chat(self, messages, stream=False):
-        data = json.dumps({
+    def chat(self, messages, stream=False, tools=None):
+        """Send a chat completion. When `tools` is a list of OpenAI-style tool
+        definitions, the model may reply with a tool_call instead of text —
+        that's how real agent tool-calling works (Hermes agent core behavior)."""
+        data = {
             "model": self.model,
             "messages": messages,
             "stream": stream,
-        }).encode()
+        }
+        if tools:
+            data["tools"] = tools
+            data["tool_choice"] = "auto"
+        body = json.dumps(data).encode()
         # Cloudflare (OpenCode Zen front) blocks Python-urllib's default UA
         # (error 1010). Use a browser-like User-Agent, same as the Node bridge.
         req = urllib.request.Request(
             self.base_url,
-            data=data,
+            data=body,
             headers={
                 "Content-Type": "application/json",
                 "User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/124.0 Mobile Safari/537.36",
@@ -152,11 +159,11 @@ class LLMClient:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=60) as resp:
+            with urllib.request.urlopen(req, timeout=90) as resp:
                 result = json.loads(resp.read())
-                return result.get("choices", [{}])[0].get("message", {}).get("content", "")
+                return result.get("choices", [{}])[0].get("message", {})
         except Exception as e:
-            return f"Error: {e}"
+            return {"content": f"Error: {e}"}
 
 # === Tool Registry ===
 class ToolRegistry:
@@ -181,6 +188,62 @@ class ToolRegistry:
 
     def register(self, name, handler, description=""):
         self.tools[name] = {"handler": handler, "description": description}
+
+    # === OpenAI-style tool schema (what the model sees) ===
+    # Each tool declares its name, description, and JSON parameters so the
+    # LLM can decide to call it — the core of real agent tool-calling.
+    _TOOL_SCHEMAS = {
+        "web_search": {"query": {"type": "string", "description": "Search query"}},
+        "web_fetch": {"url": {"type": "string", "description": "URL to fetch"}},
+        "read_file": {"path": {"type": "string", "description": "File path in app storage"}},
+        "write_file": {"path": {"type": "string", "description": "File path"}, "content": {"type": "string", "description": "Content to write"}},
+        "list_files": {"path": {"type": "string", "description": "Directory path (default .)"}},
+        "get_time": {},
+        "memory_get": {"key": {"type": "string", "description": "Memory key"}},
+        "memory_set": {"key": {"type": "string", "description": "Memory key"}, "value": {"type": "string", "description": "Value to store"}},
+        "skill_search": {"query": {"type": "string", "description": "Keyword to search skills"}},
+        "skill_get": {"path": {"type": "string", "description": "Skill path, e.g. devops/docker-management"}},
+        "calculator": {"expression": {"type": "string", "description": "Math expression, e.g. 2+3*4"}},
+        "system_info": {},
+        "run_command": {"command": {"type": "string", "description": "Shell command in app sandbox"}},
+    }
+
+    def get_openai_tools(self):
+        """Return the OpenAI function-calling tool list for this registry."""
+        tools_out = []
+        for name, meta in self.tools.items():
+            schema = self._TOOL_SCHEMAS.get(name, {})
+            params = {
+                "type": "object",
+                "properties": schema,
+                "required": [k for k in schema if k != "path" or name != "list_files"],
+            }
+            if not schema:
+                params["properties"] = {}
+                params["required"] = []
+            tools_out.append({
+                "type": "function",
+                "function": {
+                    "name": name,
+                    "description": meta["description"],
+                    "parameters": params,
+                },
+            })
+        return tools_out
+
+    def call_tool(self, name, arguments):
+        """Execute a tool by name with parsed JSON arguments."""
+        meta = self.tools.get(name)
+        if not meta:
+            return json.dumps({"error": f"Unknown tool: {name}"})
+        try:
+            args = json.loads(arguments) if isinstance(arguments, str) else (arguments or {})
+            result = meta["handler"](**args)
+            return result if isinstance(result, str) else json.dumps(result)
+        except TypeError as e:
+            return json.dumps({"error": f"Bad arguments for {name}: {e}"})
+        except Exception as e:
+            return json.dumps({"error": f"{name} failed: {e}"})
 
     def web_search(self, query, max_results=5):
         try:
@@ -343,12 +406,19 @@ tools = ToolRegistry()
 llm = LLMClient()
 
 
-def process_chat(message, history_limit=20, images=None):
+def process_chat(message, history_limit=20, images=None, max_tool_rounds=6):
     """Main entry point: Kotlin calls this with a user message, gets a reply.
-    Supports vision via two sources:
+
+    Agent behavior (matching real Hermes core): the LLM is offered the tool
+    registry via OpenAI function-calling. If it emits tool_calls, each is
+    executed and the results are fed back — the loop repeats until the model
+    produces a final text answer (or the round limit is hit).
+
+    Vision sources:
       - `@file:/path` refs in the message (filesystem images), and
       - `images` arg: list of base64 data-URIs staged by the gateway
-        (from `image.attach_bytes`)."""
+        (from `image.attach_bytes`).
+    """
     history = memory.get_history()
     system_prompt = skills.get_system_prompt()
 
@@ -363,18 +433,52 @@ def process_chat(message, history_limit=20, images=None):
     data_uis = images or []
     if data_uis:
         parts = [{"type": "text", "text": user_content}] if isinstance(user_content, str) else list(user_content)
-        # Drop the placeholder text if it's the only stub when we have images
         for du in data_uis:
             parts.append({"type": "image_url", "image_url": {"url": du}})
         user_content = parts
 
     messages.append({"role": "user", "content": user_content})
 
-    response = llm.chat(messages)
-    memory.add_message("user", message)
-    memory.add_message("assistant", response)
+    user_text = message  # original user message for memory
+    openai_tools = tools.get_openai_tools()
+    tool_uses = []
 
-    return {"response": response, "model": llm.model, "images": list(image_refs)}
+    for _ in range(max_tool_rounds):
+        message = llm.chat(messages, tools=openai_tools)
+        if not isinstance(message, dict):
+            message = {"content": str(message)}
+
+        tool_calls = message.get("tool_calls")
+        if not tool_calls:
+            # Final answer — done.
+            response = message.get("content", "")
+            memory.add_message("user", user_text)
+            memory.add_message("assistant", response)
+            return {"response": response, "model": llm.model, "images": list(image_refs), "tool_uses": tool_uses}
+
+        # Append the assistant's tool_calls message, then execute each call.
+        messages.append({"role": "assistant", "content": message.get("content") or None, "tool_calls": tool_calls})
+        for tc in tool_calls:
+            fn = tc.get("function", {})
+            name = fn.get("name", "")
+            args = fn.get("arguments", "{}")
+            result = tools.call_tool(name, args)
+            tool_uses.append({"name": name, "arguments": args})
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tc.get("id", name),
+                "name": name,
+                "content": result,
+            })
+
+    # Round limit reached — take whatever the model last said (or ask it to wrap up).
+    last = llm.chat(messages, tools=openai_tools)
+    response = last.get("content", "") if isinstance(last, dict) else str(last)
+    if not response:
+        response = "I've gathered the information but couldn't finalize a reply. Ask me again!"
+    memory.add_message("user", user_text)
+    memory.add_message("assistant", response)
+    return {"response": response, "model": llm.model, "images": list(image_refs), "tool_uses": tool_uses}
 
 
 _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
