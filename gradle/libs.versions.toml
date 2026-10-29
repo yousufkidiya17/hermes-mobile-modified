@@ -27,7 +27,7 @@ turbine = "1.2.1"
 coil = "2.7.0"
 room = "2.7.1"
 sqlcipher = "4.17.0"
-datastore = "1.1.2"
+datastore = "1.3.0"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidxCore" }
